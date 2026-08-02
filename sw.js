@@ -1,6 +1,6 @@
 // オフラインでも起動できるようにアプリ本体をキャッシュする
 // ファイルを更新したら CACHE_NAME のバージョンを上げること
-const CACHE_NAME = 'tvshrink-v1';
+const CACHE_NAME = 'tvshrink-v2';
 const ASSETS = [
   './',
   './index.html',

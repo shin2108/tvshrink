@@ -89,6 +89,7 @@
   #panel .presets { display: flex; gap: 6px; }
   #panel .src-input { display: none; }
   #panel .src-input.show { display: flex; }
+  #panel .note { font-size: 12px; opacity: 0.6; line-height: 1.5; display: block; }
 
   #gearBtn {
     position: fixed; right: 10px; bottom: 10px;
@@ -160,6 +161,18 @@
     <span style="flex:1"></span>
     <button id="centerBtn">中央に戻す</button>
   </div>
+
+  <div class="row">
+    <label>音ズレ補正</label>
+    <input type="range" id="delaySlider" min="0" max="1000" step="10" value="0">
+    <span id="delayVal">0ms</span>
+    <button id="delayResetBtn">0に戻す</button>
+  </div>
+  <div class="row note" id="delayNote">
+    映像より音が先に聞こえるとき、右に動かすと音が遅れて合います。
+    <b>「動画ファイル」で読み込んだ動画のみ</b>有効です。
+    YouTubeと動画URLでは効かないため、その場合はテレビ側の「AVサウンド同期調整」で合わせてください。
+  </div>
 </div>
 
 <script>
@@ -174,7 +187,8 @@
   const STORAGE_KEY = 'tvshrink_state_v1';
   const defaultState = {
     wPct: 40, hPct: 40, xPct: 30, yPct: 30,
-    source: 'file', ytUrl: '', directUrl: '', locked: false
+    source: 'file', ytUrl: '', directUrl: '', locked: false,
+    audioDelayMs: 0
   };
   let state = Object.assign({}, defaultState, loadState());
 
@@ -357,6 +371,100 @@
     applyBoxStyle(); saveState();
   });
 
+  // --- 音ズレ補正 ---
+  // AirPlayミラーリングでは映像がテレビ側の映像処理で遅れ、音だけ先に出ることが多い。
+  // Web AudioのDelayNodeで音声側を遅らせて合わせる。
+  // MediaElementAudioSourceNodeは一度繋ぐと解除できないので、実際に補正を使うまで作らない。
+  const delaySlider = document.getElementById('delaySlider');
+  const delayVal = document.getElementById('delayVal');
+  let audioCtx = null, delayNode = null;
+
+  function ensureAudioGraph() {
+    if (audioCtx) return true;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return false;
+    try {
+      audioCtx = new AC();
+      const src = audioCtx.createMediaElementSource(video);
+      delayNode = audioCtx.createDelay(2.0);
+      src.connect(delayNode);
+      delayNode.connect(audioCtx.destination);
+      return true;
+    } catch (e) {
+      audioCtx = null; delayNode = null;
+      return false;
+    }
+  }
+
+  // 外部URLの音声はCORS制約でWeb Audioに通すと無音になるため、
+  // ローカル読み込み(blob:)のときだけ補正を有効にする
+  function canDelayAudio() {
+    return (video.currentSrc || video.src || '').startsWith('blob:');
+  }
+
+  function applyAudioDelay() {
+    const sec = state.audioDelayMs / 1000;
+    if (sec === 0 && !audioCtx) return;  // 未使用なら何も繋がない
+    if (!canDelayAudio()) return;
+    if (!ensureAudioGraph()) return;
+    if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+    delayNode.delayTime.value = sec;
+  }
+
+  function updateDelayNote() {
+    const note = document.getElementById('delayNote');
+    const blocked = state.audioDelayMs > 0 && video.src && !canDelayAudio();
+    note.style.color = blocked ? '#ffb84d' : '';
+    note.style.opacity = blocked ? '1' : '';
+  }
+
+  delaySlider.addEventListener('input', () => {
+    state.audioDelayMs = Number(delaySlider.value);
+    delayVal.textContent = state.audioDelayMs + 'ms';
+    applyAudioDelay();
+    updateDelayNote();
+    saveState();
+  });
+  document.getElementById('delayResetBtn').addEventListener('click', () => {
+    state.audioDelayMs = 0;
+    delaySlider.value = 0;
+    delayVal.textContent = '0ms';
+    applyAudioDelay();
+    saveState();
+  });
+  // 再生開始時にも適用（iOSはユーザー操作後でないとAudioContextが動かないため）
+  video.addEventListener('play', applyAudioDelay);
+
+  // --- テレビのリモコン操作（webOSブラウザで直接開いた場合用） ---
+  // 十字キーで移動、Shift+十字キーでサイズ変更
+  document.addEventListener('keydown', (e) => {
+    if (state.locked) return;
+    const keys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
+    if (!keys.includes(e.key)) return;
+    const tag = (e.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea') return;  // 入力欄では邪魔しない
+    e.preventDefault();
+
+    const step = 2;  // 1回あたり2%動かす
+    if (e.shiftKey) {
+      if (e.key === 'ArrowRight') state.wPct = Math.min(100, state.wPct + step);
+      if (e.key === 'ArrowLeft')  state.wPct = Math.max(10, state.wPct - step);
+      if (e.key === 'ArrowDown')  state.hPct = Math.min(100, state.hPct + step);
+      if (e.key === 'ArrowUp')    state.hPct = Math.max(10, state.hPct - step);
+      widthSlider.value = Math.round(state.wPct);
+      heightSlider.value = Math.round(state.hPct);
+      widthVal.textContent = Math.round(state.wPct) + '%';
+      heightVal.textContent = Math.round(state.hPct) + '%';
+    } else {
+      if (e.key === 'ArrowRight') state.xPct = Math.min(100 - state.wPct, state.xPct + step);
+      if (e.key === 'ArrowLeft')  state.xPct = Math.max(0, state.xPct - step);
+      if (e.key === 'ArrowDown')  state.yPct = Math.min(100 - state.hPct, state.yPct + step);
+      if (e.key === 'ArrowUp')    state.yPct = Math.max(0, state.yPct - step);
+    }
+    applyBoxStyle();
+    saveState();
+  });
+
   // --- ロック・パネル開閉 ---
   const lockBtn = document.getElementById('lockBtn');
   lockBtn.addEventListener('click', () => {
@@ -382,6 +490,8 @@
   widthVal.textContent = Math.round(state.wPct) + '%';
   heightVal.textContent = Math.round(state.hPct) + '%';
   lockBtn.classList.toggle('active', state.locked);
+  delaySlider.value = state.audioDelayMs;
+  delayVal.textContent = state.audioDelayMs + 'ms';
   if (state.source === 'yt' && state.ytUrl) document.getElementById('ytInput').value = state.ytUrl;
   if (state.source === 'url' && state.directUrl) document.getElementById('urlInput').value = state.directUrl;
 
