@@ -1,4 +1,34 @@
 {
-  "_comment": "テレビでURLを入力しなくて済むように、よく見る再生リストをここに登録します。Macで編集して git push すると、テレビ側にも自動で反映されます。name は画面に出るボタン名、url はYouTubeの動画または再生リストのURLです。",
-  "playlists": []
+  "_comment": "テレビでURLを入力しなくて済むように、よく見る再生リストをここに登録します。Macで編集して git push すると、テレビ側にも自動で反映されます。name は画面に出るボタン名、url はYouTubeの動画または再生リストのURLです。編集後は sw.js の CACHE_NAME の数字を1つ上げてください。",
+  "_source": "D Billions 英語チャンネル @dbillions (channelId: UCi3onjs7UU2Z64i3RrVci-Q)。各リストは埋め込みで再生できることを確認済み。縦型のshortsは枠内で見づらいため除外。",
+  "playlists": [
+    {
+      "name": "まとめ動画（長め）",
+      "url": "https://www.youtube.com/playlist?list=PL6HtCw-4KSxYSt_olXLp8dZbhBlYMnTA4"
+    },
+    {
+      "name": "Baby DB",
+      "url": "https://www.youtube.com/playlist?list=PL6HtCw-4KSxZ94mFcCzinx7EvXJz0vh5I"
+    },
+    {
+      "name": "定番",
+      "url": "https://www.youtube.com/playlist?list=PL6HtCw-4KSxYSqx3N6ODLSzUkgKSs2puK"
+    },
+    {
+      "name": "新しい順",
+      "url": "https://www.youtube.com/playlist?list=UUi3onjs7UU2Z64i3RrVci-Q"
+    },
+    {
+      "name": "Mini DB",
+      "url": "https://www.youtube.com/playlist?list=PL6HtCw-4KSxYpy3jtDRRgXxGyhvd20RTb"
+    },
+    {
+      "name": "ヒーロー",
+      "url": "https://www.youtube.com/playlist?list=PL6HtCw-4KSxYlzEG7s3QDRXBtmRyAEVYo"
+    },
+    {
+      "name": "ファミリー",
+      "url": "https://www.youtube.com/playlist?list=PL6HtCw-4KSxZwPu2rgYYMOMLQXz0ZKHQQ"
+    }
+  ]
 }

@@ -57,6 +57,9 @@
     content: "⤡"; color: rgba(255,255,255,0.8); font-size: 16px;
   }
   #box.locked .handle { display: none; }
+  /* 視聴中（パネルを閉じている間）は操作用の帯とハンドルを消して映像を邪魔しない */
+  body.viewing .handle { display: none; }
+  body.viewing #box { outline: none; }
 
   #panel {
     position: fixed; left: 0; right: 0; bottom: 0;
@@ -247,7 +250,8 @@
   const defaultState = {
     wPct: 40, hPct: 40, xPct: 30, yPct: 30,
     source: 'yt', ytUrl: '', directUrl: '', locked: false,
-    audioDelayMs: 0, bookmarks: [], ytSameChannel: false
+    // 子供に見せるため、関連動画は既定で同じチャンネルのみに絞る
+    audioDelayMs: 0, bookmarks: [], ytSameChannel: true
   };
 
   // テレビ(webOS)のブラウザで開かれたかを判定する。
@@ -663,6 +667,7 @@
   function setPanelOpen(open) {
     panel.classList.toggle('hidden', !open);
     gearBtn.classList.toggle('hidden', open);
+    document.body.classList.toggle('viewing', !open);
     if (open) {
       // リモコンで操作を始められるよう、最初の項目にフォーカスを当てておく
       const first = panel.querySelector('button:not([style*="display: none"])');
