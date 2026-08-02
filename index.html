@@ -104,6 +104,36 @@
     border: 1px solid rgba(255,255,255,0.2);
   }
   #gearBtn.hidden { display: none; }
+
+  /* --- テレビのブラウザ用（webOS等を検出したとき body.tv が付く） --- */
+  /* 離れて見るので文字とボタンを大きく、リモコンのフォーカス位置を必ず見えるようにする */
+  body.tv #panel { font-size: 20px; padding: 16px 24px 24px; max-height: 76vh; }
+  body.tv #panel .row { gap: 12px; margin: 14px 0; }
+  body.tv #panel label { min-width: 110px; }
+  body.tv #panel button { padding: 14px 20px; font-size: 19px; border-radius: 8px; }
+  body.tv #panel input[type="url"] { padding: 12px 14px; font-size: 19px; min-width: 320px; }
+  body.tv #panel .note { font-size: 16px; }
+  body.tv #gearBtn { width: 76px; height: 76px; font-size: 34px; right: 24px; bottom: 24px; }
+  body.tv #moveHandle { height: 44px; font-size: 18px; }
+  body.tv #resizeHandle { width: 52px; height: 52px; right: -26px; bottom: -26px; }
+  /* リモコン操作ではどこを選んでいるか分からないと何もできないので強調する */
+  body.tv :focus {
+    outline: 4px solid #4d8dff;
+    outline-offset: 2px;
+    background: #24406e;
+  }
+  /* テレビでは使えない・不要な項目は隠す */
+  body.tv .no-tv { display: none !important; }
+
+  #hint {
+    position: fixed; left: 50%; top: 24px; transform: translateX(-50%);
+    background: rgba(0,0,0,0.8); color: #fff;
+    padding: 10px 20px; border-radius: 8px;
+    font-family: -apple-system, sans-serif; font-size: 16px;
+    opacity: 0; transition: opacity 0.3s ease;
+    pointer-events: none; z-index: 30;
+  }
+  body.tv #hint { font-size: 26px; padding: 16px 32px; top: 40px; }
 </style>
 </head>
 <body>
@@ -119,20 +149,21 @@
   </div>
 </div>
 
+<div id="hint"></div>
 <button id="gearBtn">⚙</button>
 
 <div id="panel">
   <div class="row">
-    <button id="srcFileBtn">動画ファイル</button>
     <button id="srcYtBtn">YouTube</button>
-    <button id="srcUrlBtn">動画URL</button>
-    <button id="srcPipBtn">黒画面のみ</button>
+    <button id="srcFileBtn" class="no-tv">動画ファイル</button>
+    <button id="srcUrlBtn" class="no-tv">動画URL</button>
+    <button id="srcPipBtn" class="no-tv">黒画面のみ</button>
     <span style="flex:1"></span>
     <button id="lockBtn">🔒 ロック</button>
     <button id="hidePanelBtn">閉じる</button>
   </div>
 
-  <div class="row src-input" data-src="file">
+  <div class="row src-input no-tv" data-src="file">
     <input type="file" id="fileInput" accept="video/*">
   </div>
 
@@ -152,7 +183,7 @@
   </div>
   <div class="row src-input note" data-src="yt">
     再生リストのURLを読み込むと、1本終わるたびに次が自動再生されます。
-    単独動画の場合は終了時に関連動画が表示され、枠内でタップすればそのまま次が再生されます。
+    単独動画の場合は終了時に関連動画が表示され、枠内で選べばそのまま次が再生されます。
   </div>
 
   <div class="row src-input" data-src="url">
@@ -190,13 +221,13 @@
     <button id="centerBtn">中央に戻す</button>
   </div>
 
-  <div class="row">
+  <div class="row no-tv">
     <label>音ズレ補正</label>
     <input type="range" id="delaySlider" min="0" max="1000" step="10" value="0">
     <span id="delayVal">0ms</span>
     <button id="delayResetBtn">0に戻す</button>
   </div>
-  <div class="row note" id="delayNote">
+  <div class="row note no-tv" id="delayNote">
     映像より音が先に聞こえるとき、右に動かすと音が遅れて合います。
     <b>「動画ファイル」で読み込んだ動画のみ</b>有効です。
     YouTubeと動画URLでは効かないため、その場合はテレビ側の「AVサウンド同期調整」で合わせてください。
@@ -215,9 +246,14 @@
   const STORAGE_KEY = 'tvshrink_state_v1';
   const defaultState = {
     wPct: 40, hPct: 40, xPct: 30, yPct: 30,
-    source: 'file', ytUrl: '', directUrl: '', locked: false,
+    source: 'yt', ytUrl: '', directUrl: '', locked: false,
     audioDelayMs: 0, bookmarks: [], ytSameChannel: false
   };
+
+  // テレビ(webOS)のブラウザで開かれたかを判定する。
+  // テレビではリモコン操作・離れて見ることを前提にUIを切り替える。
+  const isTV = /webos|web0s|smart-?tv|netcast|tizen|large screen/i.test(navigator.userAgent);
+  if (isTV) document.body.classList.add('tv');
   let state = Object.assign({}, defaultState, loadState());
 
   function loadState() {
@@ -392,38 +428,56 @@
   });
 
   // --- 保存済みリスト（毎回URLを貼り直さないため） ---
+  // テレビでは文字入力が大変なので、playlists.json に書いたものも一緒に表示する。
+  // こちらはMacで編集してpushすれば、テレビ側にも自動で反映される（削除ボタンは出さない）。
   const bmList = document.getElementById('bmList');
+  let sharedPlaylists = [];
+
+  function addBookmarkButton(bm, onDelete) {
+    const b = document.createElement('button');
+    b.textContent = bm.name;
+    b.addEventListener('click', () => {
+      document.getElementById('ytInput').value = bm.url;
+      loadYouTube(bm.url);
+    });
+    const wrap = document.createElement('span');
+    wrap.style.cssText = 'display:inline-flex;gap:2px';
+    wrap.appendChild(b);
+    if (onDelete) {
+      const del = document.createElement('button');
+      del.textContent = '×';
+      del.style.cssText = 'opacity:0.6';
+      del.addEventListener('click', onDelete);
+      wrap.appendChild(del);
+    }
+    bmList.appendChild(wrap);
+  }
 
   function renderBookmarks() {
     bmList.textContent = '';
-    if (!state.bookmarks.length) {
+    sharedPlaylists.forEach(bm => addBookmarkButton(bm, null));
+    state.bookmarks.forEach((bm, i) => addBookmarkButton(bm, () => {
+      state.bookmarks.splice(i, 1);
+      saveState();
+      renderBookmarks();
+    }));
+    if (!sharedPlaylists.length && !state.bookmarks.length) {
       const s = document.createElement('span');
-      s.style.cssText = 'opacity:0.5;font-size:12px';
+      s.style.cssText = 'opacity:0.5';
       s.textContent = 'まだありません';
       bmList.appendChild(s);
-      return;
     }
-    state.bookmarks.forEach((bm, i) => {
-      const b = document.createElement('button');
-      b.textContent = bm.name;
-      b.addEventListener('click', () => {
-        document.getElementById('ytInput').value = bm.url;
-        loadYouTube(bm.url);
-      });
-      const del = document.createElement('button');
-      del.textContent = '×';
-      del.style.cssText = 'padding:8px 10px;opacity:0.6';
-      del.addEventListener('click', () => {
-        state.bookmarks.splice(i, 1);
-        saveState();
-        renderBookmarks();
-      });
-      const wrap = document.createElement('span');
-      wrap.style.cssText = 'display:inline-flex;gap:2px';
-      wrap.append(b, del);
-      bmList.appendChild(wrap);
-    });
   }
+
+  // 共有リストを読み込む（無くても動く）
+  fetch('./playlists.json', { cache: 'no-cache' })
+    .then(r => r.ok ? r.json() : null)
+    .then(d => {
+      if (!d || !Array.isArray(d.playlists)) return;
+      sharedPlaylists = d.playlists.filter(p => p && p.name && p.url);
+      renderBookmarks();
+    })
+    .catch(() => {});
 
   document.getElementById('bmAddBtn').addEventListener('click', () => {
     const url = document.getElementById('ytInput').value.trim() || state.ytUrl;
@@ -541,10 +595,37 @@
   // 再生開始時にも適用（iOSはユーザー操作後でないとAudioContextが動かないため）
   video.addEventListener('play', applyAudioDelay);
 
-  // --- テレビのリモコン操作（webOSブラウザで直接開いた場合用） ---
-  // 十字キーで移動、Shift+十字キーでサイズ変更
+  // --- テレビのリモコン操作 ---
+  // パネルを閉じているとき（＝視聴中）だけ十字キーで枠を動かす。
+  // パネルが開いているときは項目の選択に使いたいので、ブラウザに任せる。
+  let boxKeyMode = 'move';
+  let hintTimer = null;
+  function showHint(text) {
+    const el = document.getElementById('hint');
+    el.textContent = text;
+    el.style.opacity = '1';
+    clearTimeout(hintTimer);
+    hintTimer = setTimeout(() => { el.style.opacity = '0'; }, 1800);
+  }
+
   document.addEventListener('keydown', (e) => {
+    // リモコンの「戻る」ボタン(webOSは461)でパネルを開閉する
+    if (e.keyCode === 461 || e.key === 'GoBack' || e.key === 'BrowserBack') {
+      e.preventDefault();
+      togglePanel();
+      return;
+    }
     if (state.locked) return;
+    if (!panel.classList.contains('hidden')) return;  // パネル操作中は枠を動かさない
+
+    // リモコンにShiftキーが無いので、OK(決定)ボタンで「移動」と「サイズ変更」を切り替える
+    if (e.key === 'Enter' || e.keyCode === 13) {
+      e.preventDefault();
+      boxKeyMode = (boxKeyMode === 'move') ? 'size' : 'move';
+      showHint(boxKeyMode === 'move' ? '十字キー: 移動' : '十字キー: サイズ変更');
+      return;
+    }
+
     const keys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
     if (!keys.includes(e.key)) return;
     const tag = (e.target.tagName || '').toLowerCase();
@@ -552,7 +633,7 @@
     e.preventDefault();
 
     const step = 2;  // 1回あたり2%動かす
-    if (e.shiftKey) {
+    if (e.shiftKey || boxKeyMode === 'size') {
       if (e.key === 'ArrowRight') state.wPct = Math.min(100, state.wPct + step);
       if (e.key === 'ArrowLeft')  state.wPct = Math.max(10, state.wPct - step);
       if (e.key === 'ArrowDown')  state.hPct = Math.min(100, state.hPct + step);
@@ -579,17 +660,25 @@
     box.classList.toggle('locked', state.locked);
     saveState();
   });
-  document.getElementById('hidePanelBtn').addEventListener('click', () => {
-    panel.classList.add('hidden');
-    gearBtn.classList.remove('hidden');
-  });
-  gearBtn.addEventListener('click', () => {
-    panel.classList.remove('hidden');
-    gearBtn.classList.add('hidden');
-  });
+  function setPanelOpen(open) {
+    panel.classList.toggle('hidden', !open);
+    gearBtn.classList.toggle('hidden', open);
+    if (open) {
+      // リモコンで操作を始められるよう、最初の項目にフォーカスを当てておく
+      const first = panel.querySelector('button:not([style*="display: none"])');
+      if (first && isTV) first.focus();
+    } else {
+      if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    }
+  }
+  function togglePanel() { setPanelOpen(panel.classList.contains('hidden')); }
+
+  document.getElementById('hidePanelBtn').addEventListener('click', () => setPanelOpen(false));
+  gearBtn.addEventListener('click', () => setPanelOpen(true));
 
   // --- 初期化 ---
   applyBoxStyle();
+  setPanelOpen(true);   // 起動時はパネルを開く（歯車ボタンと二重表示にしない）
   setSource(state.source);
   widthSlider.value = Math.round(state.wPct);
   heightSlider.value = Math.round(state.hPct);

@@ -1,10 +1,11 @@
 // オフラインでも起動できるようにアプリ本体をキャッシュする
 // ファイルを更新したら CACHE_NAME のバージョンを上げること
-const CACHE_NAME = 'tvshrink-v3';
+const CACHE_NAME = 'tvshrink-v4';
 const ASSETS = [
   './',
   './index.html',
   './manifest.json',
+  './playlists.json',
   './apple-touch-icon.png',
   './icon-192.png',
   './icon-512.png'
