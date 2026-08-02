@@ -87,9 +87,12 @@
   #panel button.primary { background: #3a6df0; border-color: #3a6df0; }
   #panel button.active { background: #3a6df0; border-color: #3a6df0; }
   #panel .presets { display: flex; gap: 6px; }
-  #panel .src-input { display: none; }
-  #panel .src-input.show { display: flex; }
-  #panel .note { font-size: 12px; opacity: 0.6; line-height: 1.5; display: block; }
+  #panel .note { font-size: 12px; opacity: 0.6; line-height: 1.6; }
+  /* 表示制御は「後勝ち」と詳細度で決めている。順番を入れ替えないこと */
+  #panel .row.note { display: block; }
+  #panel .row.src-input { display: none; }
+  #panel .row.src-input.show { display: flex; }
+  #panel .row.src-input.note.show { display: block; }
 
   #gearBtn {
     position: fixed; right: 10px; bottom: 10px;
@@ -123,21 +126,46 @@
     <button id="srcFileBtn">動画ファイル</button>
     <button id="srcYtBtn">YouTube</button>
     <button id="srcUrlBtn">動画URL</button>
+    <button id="srcPipBtn">黒画面のみ</button>
     <span style="flex:1"></span>
     <button id="lockBtn">🔒 ロック</button>
     <button id="hidePanelBtn">閉じる</button>
   </div>
 
-  <div class="row src-input" id="fileInputRow">
+  <div class="row src-input" data-src="file">
     <input type="file" id="fileInput" accept="video/*">
   </div>
-  <div class="row src-input" id="ytInputRow">
-    <input type="url" id="ytInput" placeholder="YouTubeのURLを貼り付け">
+
+  <div class="row src-input" data-src="yt">
+    <input type="url" id="ytInput" placeholder="動画・再生リストのURLを貼り付け">
     <button id="ytLoadBtn">読込</button>
   </div>
-  <div class="row src-input" id="urlInputRow">
+  <div class="row src-input" data-src="yt">
+    <button id="bmAddBtn">＋ 今の再生リストを保存</button>
+    <label style="min-width:0">
+      <input type="checkbox" id="ytSameChannel"> 関連動画を同じチャンネルに限定
+    </label>
+  </div>
+  <div class="row src-input" data-src="yt" id="bmRow">
+    <label>保存済み</label>
+    <div id="bmList" style="display:flex;gap:6px;flex-wrap:wrap;flex:1"></div>
+  </div>
+  <div class="row src-input note" data-src="yt">
+    再生リストのURLを読み込むと、1本終わるたびに次が自動再生されます。
+    単独動画の場合は終了時に関連動画が表示され、枠内でタップすればそのまま次が再生されます。
+  </div>
+
+  <div class="row src-input" data-src="url">
     <input type="url" id="urlInput" placeholder="動画ファイルの直接URL (.mp4など)">
     <button id="urlLoadBtn">読込</button>
+  </div>
+
+  <div class="row src-input note" data-src="pip">
+    Amazonプライム・Netflix・YouTubeアプリ用のモードです。<br>
+    ① 動画アプリで再生を始め、ピクチャインピクチャ（小窓）にする<br>
+    ② ホーム画面に戻り、このTV Shrinkを開く<br>
+    ③ 黒背景の上に小窓だけが浮いた状態になります（小窓はピンチで拡大縮小・ドラッグで移動）<br>
+    動画の切り替えは各アプリ内で普通に操作でき、次のエピソードも自動再生されます。
   </div>
 
   <div class="row">
@@ -188,7 +216,7 @@
   const defaultState = {
     wPct: 40, hPct: 40, xPct: 30, yPct: 30,
     source: 'file', ytUrl: '', directUrl: '', locked: false,
-    audioDelayMs: 0
+    audioDelayMs: 0, bookmarks: [], ytSameChannel: false
   };
   let state = Object.assign({}, defaultState, loadState());
 
@@ -278,27 +306,26 @@
   window.addEventListener('resize', applyBoxStyle);
 
   // --- ソース切り替え ---
-  const fileInputRow = document.getElementById('fileInputRow');
-  const ytInputRow = document.getElementById('ytInputRow');
-  const urlInputRow = document.getElementById('urlInputRow');
-  const srcFileBtn = document.getElementById('srcFileBtn');
-  const srcYtBtn = document.getElementById('srcYtBtn');
-  const srcUrlBtn = document.getElementById('srcUrlBtn');
+  const srcBtns = {
+    file: document.getElementById('srcFileBtn'),
+    yt: document.getElementById('srcYtBtn'),
+    url: document.getElementById('srcUrlBtn'),
+    pip: document.getElementById('srcPipBtn')
+  };
 
   function setSource(src) {
     state.source = src;
-    [fileInputRow, ytInputRow, urlInputRow].forEach(el => el.classList.remove('show'));
-    [srcFileBtn, srcYtBtn, srcUrlBtn].forEach(b => b.classList.remove('active'));
-    video.style.display = 'none';
-    ytFrame.style.display = 'none';
-    if (src === 'file') { fileInputRow.classList.add('show'); srcFileBtn.classList.add('active'); video.style.display = 'block'; }
-    if (src === 'yt') { ytInputRow.classList.add('show'); srcYtBtn.classList.add('active'); ytFrame.style.display = 'block'; }
-    if (src === 'url') { urlInputRow.classList.add('show'); srcUrlBtn.classList.add('active'); video.style.display = 'block'; }
+    document.querySelectorAll('.src-input').forEach(el => {
+      el.classList.toggle('show', el.dataset.src === src);
+    });
+    Object.entries(srcBtns).forEach(([k, b]) => b.classList.toggle('active', k === src));
+    video.style.display = (src === 'file' || src === 'url') ? 'block' : 'none';
+    ytFrame.style.display = (src === 'yt') ? 'block' : 'none';
+    // 黒画面のみモードでは枠の輪郭も消して完全な黒にする
+    box.style.display = (src === 'pip') ? 'none' : 'block';
     saveState();
   }
-  srcFileBtn.addEventListener('click', () => setSource('file'));
-  srcYtBtn.addEventListener('click', () => setSource('yt'));
-  srcUrlBtn.addEventListener('click', () => setSource('url'));
+  Object.entries(srcBtns).forEach(([k, b]) => b.addEventListener('click', () => setSource(k)));
 
   document.getElementById('fileInput').addEventListener('change', (e) => {
     const f = e.target.files[0];
@@ -307,26 +334,105 @@
     video.play().catch(() => {});
   });
 
-  function extractYouTubeId(url) {
-    const patterns = [
+  // --- YouTube ---
+  // URLから動画IDと再生リストIDを取り出す。再生リストがあれば連続再生になる。
+  function parseYouTube(url) {
+    const vidPatterns = [
       /youtu\.be\/([\w-]{6,})/,
       /[?&]v=([\w-]{6,})/,
       /youtube\.com\/shorts\/([\w-]{6,})/,
       /youtube\.com\/embed\/([\w-]{6,})/
     ];
-    for (const p of patterns) {
+    let videoId = null;
+    for (const p of vidPatterns) {
       const m = url.match(p);
-      if (m) return m[1];
+      if (m) { videoId = m[1]; break; }
     }
-    return null;
+    const lm = url.match(/[?&]list=([\w-]+)/);
+    const listId = lm ? lm[1] : null;
+    // チャンネルID(UC...)は「アップロード動画」再生リスト(UU...)に読み替えると連続再生できる
+    const cm = url.match(/youtube\.com\/channel\/(UC[\w-]+)/);
+    const uploadsId = cm ? 'UU' + cm[1].slice(2) : null;
+    return { videoId, listId: listId || uploadsId };
   }
-  document.getElementById('ytLoadBtn').addEventListener('click', () => {
-    const url = document.getElementById('ytInput').value.trim();
-    const id = extractYouTubeId(url);
-    if (!id) { alert('YouTubeのURLを認識できませんでした'); return; }
+
+  function buildYouTubeUrl({ videoId, listId }) {
+    const rel = document.getElementById('ytSameChannel').checked ? 0 : 1;
+    const p = new URLSearchParams({
+      playsinline: '1', autoplay: '1', rel: String(rel)
+    });
+    if (listId) {
+      p.set('list', listId);
+      p.set('loop', '1');  // 再生リストを最後まで見たら先頭に戻る
+    }
+    const base = 'https://www.youtube-nocookie.com/embed/';
+    // 動画IDが無く再生リストだけの場合は videoseries を使う
+    return base + (videoId || 'videoseries') + '?' + p.toString();
+  }
+
+  function loadYouTube(url) {
+    const parsed = parseYouTube(url);
+    if (!parsed.videoId && !parsed.listId) {
+      alert('YouTubeのURLを認識できませんでした');
+      return false;
+    }
     state.ytUrl = url;
     saveState();
-    ytFrame.src = `https://www.youtube-nocookie.com/embed/${id}?playsinline=1&rel=0&autoplay=1`;
+    ytFrame.src = buildYouTubeUrl(parsed);
+    return true;
+  }
+
+  document.getElementById('ytLoadBtn').addEventListener('click', () => {
+    loadYouTube(document.getElementById('ytInput').value.trim());
+  });
+  document.getElementById('ytSameChannel').addEventListener('change', () => {
+    state.ytSameChannel = document.getElementById('ytSameChannel').checked;
+    saveState();
+    if (state.ytUrl) loadYouTube(state.ytUrl);  // 設定変更を即反映
+  });
+
+  // --- 保存済みリスト（毎回URLを貼り直さないため） ---
+  const bmList = document.getElementById('bmList');
+
+  function renderBookmarks() {
+    bmList.textContent = '';
+    if (!state.bookmarks.length) {
+      const s = document.createElement('span');
+      s.style.cssText = 'opacity:0.5;font-size:12px';
+      s.textContent = 'まだありません';
+      bmList.appendChild(s);
+      return;
+    }
+    state.bookmarks.forEach((bm, i) => {
+      const b = document.createElement('button');
+      b.textContent = bm.name;
+      b.addEventListener('click', () => {
+        document.getElementById('ytInput').value = bm.url;
+        loadYouTube(bm.url);
+      });
+      const del = document.createElement('button');
+      del.textContent = '×';
+      del.style.cssText = 'padding:8px 10px;opacity:0.6';
+      del.addEventListener('click', () => {
+        state.bookmarks.splice(i, 1);
+        saveState();
+        renderBookmarks();
+      });
+      const wrap = document.createElement('span');
+      wrap.style.cssText = 'display:inline-flex;gap:2px';
+      wrap.append(b, del);
+      bmList.appendChild(wrap);
+    });
+  }
+
+  document.getElementById('bmAddBtn').addEventListener('click', () => {
+    const url = document.getElementById('ytInput').value.trim() || state.ytUrl;
+    if (!url) { alert('先にURLを読み込んでください'); return; }
+    const name = prompt('名前を付けてください（例: アンパンマン）');
+    if (!name) return;
+    state.bookmarks.push({ name: name.slice(0, 20), url });
+    saveState();
+    renderBookmarks();
   });
   document.getElementById('urlLoadBtn').addEventListener('click', () => {
     const url = document.getElementById('urlInput').value.trim();
@@ -492,6 +598,8 @@
   lockBtn.classList.toggle('active', state.locked);
   delaySlider.value = state.audioDelayMs;
   delayVal.textContent = state.audioDelayMs + 'ms';
+  document.getElementById('ytSameChannel').checked = !!state.ytSameChannel;
+  renderBookmarks();
   if (state.source === 'yt' && state.ytUrl) document.getElementById('ytInput').value = state.ytUrl;
   if (state.source === 'url' && state.directUrl) document.getElementById('urlInput').value = state.directUrl;
 
