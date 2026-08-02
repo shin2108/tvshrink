@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="TV Shrink">
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="./manifest.json">
+<link rel="apple-touch-icon" href="./apple-touch-icon.png">
+<link rel="icon" href="./icon-192.png">
+<title>TV Shrink</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: #000; overflow: hidden;
+    -webkit-user-select: none; user-select: none;
+    -webkit-touch-callout: none;
+    overscroll-behavior: none;
+  }
+  #stage {
+    position: fixed; inset: 0; background: #000;
+  }
+  #box {
+    position: absolute;
+    background: #000;
+    outline: 1px solid rgba(255,255,255,0.15);
+  }
+  #box.locked { outline: none; }
+  #mediaWrap {
+    position: absolute; inset: 0; overflow: hidden;
+  }
+  video, iframe {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    border: 0; background: #000;
+  }
+  .handle {
+    position: absolute;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(255,255,255,0.18);
+    touch-action: none;
+    z-index: 5;
+  }
+  #moveHandle {
+    top: 0; left: 0; right: 0; height: 28px;
+    border-bottom: 1px solid rgba(255,255,255,0.25);
+    color: rgba(255,255,255,0.7); font-size: 12px; font-family: sans-serif;
+  }
+  #resizeHandle {
+    width: 32px; height: 32px; right: -16px; bottom: -16px;
+    border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.3);
+  }
+  #resizeHandle::after {
+    content: "⤡"; color: rgba(255,255,255,0.8); font-size: 16px;
+  }
+  #box.locked .handle { display: none; }
+
+  #panel {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    background: rgba(20,20,20,0.92);
+    color: #eee; font-family: -apple-system, sans-serif;
+    padding: 10px 14px calc(14px + env(safe-area-inset-bottom));
+    box-sizing: border-box;
+    font-size: 14px;
+    transform: translateY(0);
+    transition: transform 0.25s ease;
+    z-index: 10;
+    max-height: 70vh;
+    overflow-y: auto;
+  }
+  #panel.hidden { transform: translateY(100%); }
+
+  #panel .row { display: flex; align-items: center; gap: 8px; margin: 8px 0; flex-wrap: wrap; }
+  #panel label { opacity: 0.8; min-width: 64px; }
+  #panel input[type="text"], #panel input[type="url"] {
+    flex: 1; min-width: 140px; padding: 6px 8px; border-radius: 6px;
+    border: 1px solid #555; background: #111; color: #eee;
+  }
+  #panel input[type="range"] { flex: 1; }
+  #panel button {
+    padding: 8px 12px; border-radius: 6px; border: 1px solid #666;
+    background: #2a2a2a; color: #eee; font-size: 13px;
+  }
+  #panel button.primary { background: #3a6df0; border-color: #3a6df0; }
+  #panel button.active { background: #3a6df0; border-color: #3a6df0; }
+  #panel .presets { display: flex; gap: 6px; }
+  #panel .src-input { display: none; }
+  #panel .src-input.show { display: flex; }
+
+  #gearBtn {
+    position: fixed; right: 10px; bottom: 10px;
+    width: 44px; height: 44px; border-radius: 50%;
+    background: rgba(255,255,255,0.12);
+    color: #fff; font-size: 20px;
+    display: flex; align-items: center; justify-content: center;
+    z-index: 20;
+    border: 1px solid rgba(255,255,255,0.2);
+  }
+  #gearBtn.hidden { display: none; }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <div id="box">
+    <div id="mediaWrap">
+      <video id="video" playsinline webkit-playsinline controls disableRemotePlayback x-webkit-airplay="deny"></video>
+      <iframe id="ytFrame" allow="autoplay; encrypted-media" allowfullscreen style="display:none"></iframe>
+    </div>
+    <div id="moveHandle" class="handle">ドラッグで移動</div>
+    <div id="resizeHandle" class="handle"></div>
+  </div>
+</div>
+
+<button id="gearBtn">⚙</button>
+
+<div id="panel">
+  <div class="row">
+    <button id="srcFileBtn">動画ファイル</button>
+    <button id="srcYtBtn">YouTube</button>
+    <button id="srcUrlBtn">動画URL</button>
+    <span style="flex:1"></span>
+    <button id="lockBtn">🔒 ロック</button>
+    <button id="hidePanelBtn">閉じる</button>
+  </div>
+
+  <div class="row src-input" id="fileInputRow">
+    <input type="file" id="fileInput" accept="video/*">
+  </div>
+  <div class="row src-input" id="ytInputRow">
+    <input type="url" id="ytInput" placeholder="YouTubeのURLを貼り付け">
+    <button id="ytLoadBtn">読込</button>
+  </div>
+  <div class="row src-input" id="urlInputRow">
+    <input type="url" id="urlInput" placeholder="動画ファイルの直接URL (.mp4など)">
+    <button id="urlLoadBtn">読込</button>
+  </div>
+
+  <div class="row">
+    <label>幅</label>
+    <input type="range" id="widthSlider" min="10" max="100" value="40">
+    <span id="widthVal">40%</span>
+  </div>
+  <div class="row">
+    <label>高さ</label>
+    <input type="range" id="heightSlider" min="10" max="100" value="40">
+    <span id="heightVal">40%</span>
+  </div>
+  <div class="row">
+    <label>プリセット</label>
+    <div class="presets">
+      <button class="preset" data-w="25" data-h="25">25%</button>
+      <button class="preset" data-w="40" data-h="40">40%</button>
+      <button class="preset" data-w="60" data-h="60">60%</button>
+      <button class="preset" data-w="100" data-h="100">100%</button>
+    </div>
+    <span style="flex:1"></span>
+    <button id="centerBtn">中央に戻す</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  const stage = document.getElementById('stage');
+  const box = document.getElementById('box');
+  const video = document.getElementById('video');
+  const ytFrame = document.getElementById('ytFrame');
+  const panel = document.getElementById('panel');
+  const gearBtn = document.getElementById('gearBtn');
+
+  const STORAGE_KEY = 'tvshrink_state_v1';
+  const defaultState = {
+    wPct: 40, hPct: 40, xPct: 30, yPct: 30,
+    source: 'file', ytUrl: '', directUrl: '', locked: false
+  };
+  let state = Object.assign({}, defaultState, loadState());
+
+  function loadState() {
+    try {
+      return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {};
+    } catch (e) { return {}; }
+  }
+  function saveState() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }
+
+  function applyBoxStyle() {
+    const w = window.innerWidth, h = window.innerHeight;
+    let bw = state.wPct / 100 * w;
+    let bh = state.hPct / 100 * h;
+    let bx = state.xPct / 100 * w;
+    let by = state.yPct / 100 * h;
+    bx = Math.max(0, Math.min(bx, w - bw));
+    by = Math.max(0, Math.min(by, h - bh));
+    box.style.width = bw + 'px';
+    box.style.height = bh + 'px';
+    box.style.left = bx + 'px';
+    box.style.top = by + 'px';
+    box.classList.toggle('locked', !!state.locked);
+  }
+
+  function clampAndSyncFromPixels() {
+    const w = window.innerWidth, h = window.innerHeight;
+    const rect = box.getBoundingClientRect();
+    state.wPct = rect.width / w * 100;
+    state.hPct = rect.height / h * 100;
+    state.xPct = rect.left / w * 100;
+    state.yPct = rect.top / h * 100;
+    widthSlider.value = Math.round(state.wPct);
+    heightSlider.value = Math.round(state.hPct);
+    widthVal.textContent = Math.round(state.wPct) + '%';
+    heightVal.textContent = Math.round(state.hPct) + '%';
+    saveState();
+  }
+
+  // --- 移動ハンドル ---
+  const moveHandle = document.getElementById('moveHandle');
+  let dragging = null;
+  moveHandle.addEventListener('pointerdown', (e) => {
+    if (state.locked) return;
+    const rect = box.getBoundingClientRect();
+    dragging = { startX: e.clientX, startY: e.clientY, left: rect.left, top: rect.top };
+    moveHandle.setPointerCapture(e.pointerId);
+  });
+  moveHandle.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const w = window.innerWidth, h = window.innerHeight;
+    const rect = box.getBoundingClientRect();
+    let nx = dragging.left + (e.clientX - dragging.startX);
+    let ny = dragging.top + (e.clientY - dragging.startY);
+    nx = Math.max(0, Math.min(nx, w - rect.width));
+    ny = Math.max(0, Math.min(ny, h - rect.height));
+    box.style.left = nx + 'px';
+    box.style.top = ny + 'px';
+  });
+  moveHandle.addEventListener('pointerup', () => { dragging = null; clampAndSyncFromPixels(); });
+
+  // --- リサイズハンドル ---
+  const resizeHandle = document.getElementById('resizeHandle');
+  let resizing = null;
+  resizeHandle.addEventListener('pointerdown', (e) => {
+    if (state.locked) return;
+    const rect = box.getBoundingClientRect();
+    resizing = { startX: e.clientX, startY: e.clientY, w: rect.width, h: rect.height };
+    resizeHandle.setPointerCapture(e.pointerId);
+    e.stopPropagation();
+  });
+  resizeHandle.addEventListener('pointermove', (e) => {
+    if (!resizing) return;
+    const w = window.innerWidth, h = window.innerHeight;
+    const rect = box.getBoundingClientRect();
+    let nw = resizing.w + (e.clientX - resizing.startX);
+    let nh = resizing.h + (e.clientY - resizing.startY);
+    nw = Math.max(80, Math.min(nw, w - rect.left));
+    nh = Math.max(60, Math.min(nh, h - rect.top));
+    box.style.width = nw + 'px';
+    box.style.height = nh + 'px';
+  });
+  resizeHandle.addEventListener('pointerup', () => { resizing = null; clampAndSyncFromPixels(); });
+
+  window.addEventListener('resize', applyBoxStyle);
+
+  // --- ソース切り替え ---
+  const fileInputRow = document.getElementById('fileInputRow');
+  const ytInputRow = document.getElementById('ytInputRow');
+  const urlInputRow = document.getElementById('urlInputRow');
+  const srcFileBtn = document.getElementById('srcFileBtn');
+  const srcYtBtn = document.getElementById('srcYtBtn');
+  const srcUrlBtn = document.getElementById('srcUrlBtn');
+
+  function setSource(src) {
+    state.source = src;
+    [fileInputRow, ytInputRow, urlInputRow].forEach(el => el.classList.remove('show'));
+    [srcFileBtn, srcYtBtn, srcUrlBtn].forEach(b => b.classList.remove('active'));
+    video.style.display = 'none';
+    ytFrame.style.display = 'none';
+    if (src === 'file') { fileInputRow.classList.add('show'); srcFileBtn.classList.add('active'); video.style.display = 'block'; }
+    if (src === 'yt') { ytInputRow.classList.add('show'); srcYtBtn.classList.add('active'); ytFrame.style.display = 'block'; }
+    if (src === 'url') { urlInputRow.classList.add('show'); srcUrlBtn.classList.add('active'); video.style.display = 'block'; }
+    saveState();
+  }
+  srcFileBtn.addEventListener('click', () => setSource('file'));
+  srcYtBtn.addEventListener('click', () => setSource('yt'));
+  srcUrlBtn.addEventListener('click', () => setSource('url'));
+
+  document.getElementById('fileInput').addEventListener('change', (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    video.src = URL.createObjectURL(f);
+    video.play().catch(() => {});
+  });
+
+  function extractYouTubeId(url) {
+    const patterns = [
+      /youtu\.be\/([\w-]{6,})/,
+      /[?&]v=([\w-]{6,})/,
+      /youtube\.com\/shorts\/([\w-]{6,})/,
+      /youtube\.com\/embed\/([\w-]{6,})/
+    ];
+    for (const p of patterns) {
+      const m = url.match(p);
+      if (m) return m[1];
+    }
+    return null;
+  }
+  document.getElementById('ytLoadBtn').addEventListener('click', () => {
+    const url = document.getElementById('ytInput').value.trim();
+    const id = extractYouTubeId(url);
+    if (!id) { alert('YouTubeのURLを認識できませんでした'); return; }
+    state.ytUrl = url;
+    saveState();
+    ytFrame.src = `https://www.youtube-nocookie.com/embed/${id}?playsinline=1&rel=0&autoplay=1`;
+  });
+  document.getElementById('urlLoadBtn').addEventListener('click', () => {
+    const url = document.getElementById('urlInput').value.trim();
+    if (!url) return;
+    state.directUrl = url;
+    saveState();
+    video.src = url;
+    video.play().catch(() => {});
+  });
+
+  // --- サイズスライダー ---
+  const widthSlider = document.getElementById('widthSlider');
+  const heightSlider = document.getElementById('heightSlider');
+  const widthVal = document.getElementById('widthVal');
+  const heightVal = document.getElementById('heightVal');
+  widthSlider.addEventListener('input', () => {
+    state.wPct = Number(widthSlider.value);
+    widthVal.textContent = state.wPct + '%';
+    applyBoxStyle(); saveState();
+  });
+  heightSlider.addEventListener('input', () => {
+    state.hPct = Number(heightSlider.value);
+    heightVal.textContent = state.hPct + '%';
+    applyBoxStyle(); saveState();
+  });
+
+  document.querySelectorAll('.preset').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.wPct = Number(btn.dataset.w);
+      state.hPct = Number(btn.dataset.h);
+      widthSlider.value = state.wPct;
+      heightSlider.value = state.hPct;
+      widthVal.textContent = state.wPct + '%';
+      heightVal.textContent = state.hPct + '%';
+      applyBoxStyle(); saveState();
+    });
+  });
+
+  document.getElementById('centerBtn').addEventListener('click', () => {
+    state.xPct = (100 - state.wPct) / 2;
+    state.yPct = (100 - state.hPct) / 2;
+    applyBoxStyle(); saveState();
+  });
+
+  // --- ロック・パネル開閉 ---
+  const lockBtn = document.getElementById('lockBtn');
+  lockBtn.addEventListener('click', () => {
+    state.locked = !state.locked;
+    lockBtn.classList.toggle('active', state.locked);
+    box.classList.toggle('locked', state.locked);
+    saveState();
+  });
+  document.getElementById('hidePanelBtn').addEventListener('click', () => {
+    panel.classList.add('hidden');
+    gearBtn.classList.remove('hidden');
+  });
+  gearBtn.addEventListener('click', () => {
+    panel.classList.remove('hidden');
+    gearBtn.classList.add('hidden');
+  });
+
+  // --- 初期化 ---
+  applyBoxStyle();
+  setSource(state.source);
+  widthSlider.value = Math.round(state.wPct);
+  heightSlider.value = Math.round(state.hPct);
+  widthVal.textContent = Math.round(state.wPct) + '%';
+  heightVal.textContent = Math.round(state.hPct) + '%';
+  lockBtn.classList.toggle('active', state.locked);
+  if (state.source === 'yt' && state.ytUrl) document.getElementById('ytInput').value = state.ytUrl;
+  if (state.source === 'url' && state.directUrl) document.getElementById('urlInput').value = state.directUrl;
+
+  // オフラインでも起動できるようにキャッシュを登録(https または localhost のみ有効)
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js').catch(() => {});
+    });
+  }
+})();
+</script>
+</body>
+</html>
